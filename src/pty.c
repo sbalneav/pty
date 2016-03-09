@@ -39,6 +39,7 @@
 #include <errno.h>
 
 static int child_exited = 0;
+static pid_t child_exit_status = 0;
 
 /*
  * handle_sigchild
@@ -51,7 +52,7 @@ void
 handle_sigchld (int sig)
 {
   int saved_errno = errno;
-  while (waitpid ((pid_t) (-1), 0, WNOHANG) > 0);
+  while (waitpid ((pid_t) (-1), &child_exit_status, WNOHANG) > 0);
   child_exited = 1;
   errno = saved_errno;
 }
@@ -144,9 +145,7 @@ main (int argc, char **argv)
           if (FD_ISSET (STDIN_FILENO, &fd_in))
             {
               rc = read (STDIN_FILENO, input, sizeof input);
-              if (rc < 0)
-                die ("Error %d on read STDIN", errno);
-              else
+              if (rc > 0)
                 write (fdmaster, input, rc);
             }
 
@@ -154,12 +153,12 @@ main (int argc, char **argv)
           if (FD_ISSET (fdmaster, &fd_in))
             {
               rc = read (fdmaster, input, sizeof input);
-              if (rc < 0)
-                die ("Error %d on read master PTY", errno);
-              else
+              if (rc > 0)
                 write (STDOUT_FILENO, input, rc);
             }
         }
+      if (WIFEXITED(child_exit_status))
+        exit (WEXITSTATUS(child_exit_status));
     }
   else
     {
