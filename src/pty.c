@@ -83,25 +83,21 @@ int
 main (int argc, char **argv)
 {
   int fdmaster, fdslave;
-  int i, rc;
-  char input[BUFSIZ];
-  char **child_argv;
+  char **child_argv = argv;
   struct sigaction sa;
 
   /* Check arguments */
   if (argc < 2)
     die ("Usage: %s program_name [parameters]", argv[0]);
 
-  fdmaster = posix_openpt (O_RDWR);
+  fdmaster = posix_openpt (O_RDWR|O_NOCTTY);
   if (fdmaster < 0)
     die ("Error %d on posix_openpt()", errno);
 
-  rc = grantpt (fdmaster);
-  if (rc != 0)
+  if (grantpt (fdmaster) < 0)
     die ("Error %d on grantpt()", errno);
 
-  rc = unlockpt (fdmaster);
-  if (rc != 0)
+  if (unlockpt (fdmaster) < 0)
     die ("Error %d on unlockpt()", errno);
 
   /* Open the slave side ot the PTY */
@@ -113,7 +109,7 @@ main (int argc, char **argv)
   sa.sa_handler = &handle_sigchld;
   sigemptyset (&sa.sa_mask);
   sa.sa_flags = SA_RESTART | SA_NOCLDSTOP;
-  if (sigaction (SIGCHLD, &sa, 0) == -1)
+  if (sigaction (SIGCHLD, &sa, 0) < 0)
     die ("Error %d on sigaction()", errno);
 
   /* Create the child process */
@@ -122,6 +118,9 @@ main (int argc, char **argv)
       /******************************************************************/
       /*                             Parent                             */
       /******************************************************************/
+
+      int rc;
+      char input[BUFSIZ];
 
       fd_set fd_in;
 
@@ -137,31 +136,27 @@ main (int argc, char **argv)
           FD_SET (STDIN_FILENO, &fd_in);
           FD_SET (fdmaster, &fd_in);
 
-          rc = select (fdmaster + 1, &fd_in, NULL, NULL, NULL);
-          if (rc < 0)
+          if (select (fdmaster + 1, &fd_in, NULL, NULL, NULL) < 0)
             die ("Error %d on select()", errno);
 
           /* If data on STDIN, write to master side of PTY */
           if (FD_ISSET (STDIN_FILENO, &fd_in))
-            {
-              rc = read (STDIN_FILENO, input, sizeof input);
-              if (rc > 0)
-                write (fdmaster, input, rc);
-            }
+            if ((rc = read (STDIN_FILENO, input, sizeof input)) > 0)
+              write (fdmaster, input, rc);
 
           /* If data on master side of PTY, write to STDOUT */
           if (FD_ISSET (fdmaster, &fd_in))
-            {
-              rc = read (fdmaster, input, sizeof input);
-              if (rc > 0)
-                write (STDOUT_FILENO, input, rc);
-            }
+            if ((rc = read (fdmaster, input, sizeof input)) > 0)
+              write (STDOUT_FILENO, input, rc);
         }
+
       if (WIFEXITED(child_exit_status))
         exit (WEXITSTATUS(child_exit_status));
     }
   else
     {
+      pid_t mypid = getpid();
+
       /******************************************************************/
       /*                             Child                              */
       /******************************************************************/
@@ -172,15 +167,13 @@ main (int argc, char **argv)
       close (fdmaster);                        /* Close master side of PTY */
 
       /* Save the defaults parameters of the slave side of the PTY */
-      rc = tcgetattr (fdslave, &slave_orig_term_settings);
-      if (rc < 0)
+      if (tcgetattr (fdslave, &slave_orig_term_settings) < 0)
         die ("Error %d on tcgetattr()", errno);
 
       /* Set RAW mode on slave side of PTY */
       new_term_settings = slave_orig_term_settings;
       cfmakeraw (&new_term_settings);
-      rc = tcsetattr (fdslave, TCSANOW, &new_term_settings);
-      if (rc < 0)
+      if (tcsetattr (fdslave, TCSANOW, &new_term_settings) < 0)
         die ("Error %d on tcsetattr()", errno);
 
       /*
@@ -188,30 +181,27 @@ main (int argc, char **argv)
        * outputs of the child process
        */
 
-      close (STDIN_FILENO);                    /* Close STDIN (current) */
-      close (STDOUT_FILENO);                   /* Close STDOUT (current) */
-      close (STDERR_FILENO);                   /* Close STDERR (current) */
-
-      dup (fdslave);                           /* PTY becomes STDIN */
-      dup (fdslave);                           /* PTY becomes STDOUT */
-      dup (fdslave);                           /* PTY becomes STDERR */
-
+      dup2 (fdslave, STDIN_FILENO);            /* PTY becomes STDIN */
+      dup2 (fdslave, STDOUT_FILENO);           /* PTY becomes STDOUT */
+      dup2 (fdslave, STDERR_FILENO);           /* PTY becomes STDERR */
       close (fdslave);                         /* Close original fd */
 
-      setsid ();                               /* Set as session leader */
-
       /*
-       * As the child is a session leader, set the controlling terminal
+       * Set the child as a session leader, and set the controlling terminal
        * to be the slave side of the PTY
        */
 
-      ioctl (STDIN_FILENO, TIOCSCTTY, 1);
+      if (setsid () < 0)
+        die ("Error %d on setsid()", errno);
+      if (ioctl (STDIN_FILENO, TIOCSCTTY, 1) < 0)
+        die ("Error %d on ioctl()", errno);
+      if (tcsetpgrp(STDIN_FILENO, mypid) < 0)
+        die ("Error %d on tcsetpgrp()", errno);
 
       /* Build the command line for program execution */
       /* argv[argc] = NULL, so we can just pass along the current argv + 1. */
-      child_argv = argv;
       child_argv++;
-      rc = execvp (child_argv[0], child_argv);
+      execvp (child_argv[0], child_argv);
 
       /* Shouldn't ever reach here after an execvp... */
       return 1;
