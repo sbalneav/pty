@@ -29,11 +29,9 @@
 #define _BSD_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdarg.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <errno.h>
 #include <termios.h>
 #include <signal.h>
 #include <sys/select.h>
@@ -64,14 +62,9 @@ handle_sigchld (int sig __attribute__ ((unused)))
  */
 
 void
-die (const char *format, ...)
+die (const char *msg)
 {
-  va_list ap;
-
-  va_start (ap, format);
-  vfprintf (stderr, format, ap);
-  va_end (ap);
-  fprintf (stderr, "\n");
+  perror (msg);
   exit (1);
 }
 
@@ -86,26 +79,26 @@ main (int argc, char **argv)
   struct sigaction sa;
 
   if (argc < 2)
-    die ("Usage: %s program_name [parameters]", argv[0]);
+    return 1;
 
   /* Create master side of the PTY */
   if ((fdmaster = posix_openpt (O_RDWR|O_NOCTTY)) < 0)
-    die ("Error %d on posix_openpt()", errno);
+    die ("Error in posix_openpt()");
   if (grantpt (fdmaster) < 0)
-    die ("Error %d on grantpt()", errno);
+    die ("Error in grantpt()");
   if (unlockpt (fdmaster) < 0)
-    die ("Error %d on unlockpt()", errno);
+    die ("Error in unlockpt()");
 
   /* Create the slave side of the PTY */
   if ((fdslave = open (ptsname (fdmaster), O_RDWR)) < 0)
-    die ("Error %d on open()", errno);
+    die ("Error in open()");
 
   /* before we fork, set SIGCHLD signal handler */
   sa.sa_handler = &handle_sigchld;
   sigemptyset (&sa.sa_mask);
   sa.sa_flags = SA_RESTART | SA_NOCLDSTOP;
   if (sigaction (SIGCHLD, &sa, NULL) < 0)
-    die ("Error %d on sigaction()", errno);
+    die ("Error in sigaction()");
 
   /* Create the child process */
   if (!fork ())
@@ -120,10 +113,10 @@ main (int argc, char **argv)
 
       /* Set RAW mode on slave side of the PTY */
       if (tcgetattr (fdslave, &term_settings) < 0)
-        die ("Error %d on tcgetattr()", errno);
+        die ("Error in tcgetattr()");
       cfmakeraw (&term_settings);
       if (tcsetattr (fdslave, TCSANOW, &term_settings) < 0)
-        die ("Error %d on tcsetattr()", errno);
+        die ("Error in tcsetattr()");
 
       /* Slave side of the PTY becomes STDIN, STDOUT & STDERR for child */
       dup2 (fdslave, STDIN_FILENO);
@@ -133,11 +126,11 @@ main (int argc, char **argv)
 
       /* Child becomes session leader, slave PTY becomes controlling term */
       if (setsid () < 0)
-        die ("Error %d on setsid()", errno);
+        die ("Error in setsid()");
       if (ioctl (STDIN_FILENO, TIOCSCTTY, 1) < 0)
-        die ("Error %d on ioctl()", errno);
+        die ("Error in ioctl()");
       if (tcsetpgrp(STDIN_FILENO, getpid()) < 0)
-        die ("Error %d on tcsetpgrp()", errno);
+        die ("Error in tcsetpgrp()");
 
       /* Build argv for execvp. argv[argc] = NULL, so just pass argv + 1. */
       argv++;
@@ -169,7 +162,7 @@ main (int argc, char **argv)
           FD_SET (fdmaster, &fd_in);
 
           if (select (fdmaster + 1, &fd_in, NULL, NULL, NULL) < 0)
-            die ("Error %d on select()", errno);
+            die ("Error in select()");
 
           /* If data on STDIN, write to master side of PTY */
           if (FD_ISSET (STDIN_FILENO, &fd_in))
