@@ -23,20 +23,22 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+/* For posix_openpt */
 #define _XOPEN_SOURCE 600
+/* For cfmakeraw */
 #define _BSD_SOURCE
+#include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <sys/types.h>
+#include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
-#include <unistd.h>
-#include <stdio.h>
 #include <termios.h>
 #include <signal.h>
 #include <sys/select.h>
 #include <sys/ioctl.h>
 #include <sys/wait.h>
-#include <errno.h>
 
 static int child_exited = 0;
 static pid_t child_exit_status = 0;
@@ -49,12 +51,10 @@ static pid_t child_exit_status = 0;
  */
 
 void
-handle_sigchld (int sig)
+handle_sigchld (int sig __attribute__ ((unused)))
 {
-  int saved_errno = errno;
   while (waitpid ((pid_t) (-1), &child_exit_status, WNOHANG) > 0);
   child_exited = 1;
-  errno = saved_errno;
 }
 
 /*
@@ -148,12 +148,12 @@ main (int argc, char **argv)
               write (STDOUT_FILENO, input, rc);
         }
 
-      if (WIFEXITED(child_exit_status))
-        exit (WEXITSTATUS(child_exit_status));
+      if (WIFEXITED (child_exit_status))
+        exit (WEXITSTATUS (child_exit_status));
     }
   else
     {
-      pid_t mypid = getpid();
+      pid_t mypid = getpid ();
 
       /******************************************************************/
       /*                             Child                              */
