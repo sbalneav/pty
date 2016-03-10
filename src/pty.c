@@ -90,8 +90,7 @@ main (int argc, char **argv)
   if (argc < 2)
     die ("Usage: %s program_name [parameters]", argv[0]);
 
-  fdmaster = posix_openpt (O_RDWR|O_NOCTTY);
-  if (fdmaster < 0)
+  if ((fdmaster = posix_openpt (O_RDWR|O_NOCTTY)) < 0)
     die ("Error %d on posix_openpt()", errno);
 
   if (grantpt (fdmaster) < 0)
@@ -101,8 +100,7 @@ main (int argc, char **argv)
     die ("Error %d on unlockpt()", errno);
 
   /* Open the slave side ot the PTY */
-  fdslave = open (ptsname (fdmaster), O_RDWR);
-  if (fdslave < 0)
+  if ((fdslave = open (ptsname (fdmaster), O_RDWR)) < 0)
     die ("Error %d on open()", errno);
 
   /* before we fork, set SIGCHLD signal handler */
@@ -161,19 +159,19 @@ main (int argc, char **argv)
       /*                             Child                              */
       /******************************************************************/
 
-      struct termios slave_orig_term_settings; /* Saved terminal settings */
-      struct termios new_term_settings;        /* Current terminal settings */
+      struct termios term_settings;            /* Terminal settings */
 
       close (fdmaster);                        /* Close master side of PTY */
 
-      /* Save the defaults parameters of the slave side of the PTY */
-      if (tcgetattr (fdslave, &slave_orig_term_settings) < 0)
-        die ("Error %d on tcgetattr()", errno);
+      /*
+       * Get the current term settings, and set RAW mode
+       * on slave side of the PTY
+       */
 
-      /* Set RAW mode on slave side of PTY */
-      new_term_settings = slave_orig_term_settings;
-      cfmakeraw (&new_term_settings);
-      if (tcsetattr (fdslave, TCSANOW, &new_term_settings) < 0)
+      if (tcgetattr (fdslave, &term_settings) < 0)
+        die ("Error %d on tcgetattr()", errno);
+      cfmakeraw (&term_settings);
+      if (tcsetattr (fdslave, TCSANOW, &term_settings) < 0)
         die ("Error %d on tcsetattr()", errno);
 
       /*
@@ -198,8 +196,11 @@ main (int argc, char **argv)
       if (tcsetpgrp(STDIN_FILENO, mypid) < 0)
         die ("Error %d on tcsetpgrp()", errno);
 
-      /* Build the command line for program execution */
-      /* argv[argc] = NULL, so we can just pass along the current argv + 1. */
+      /*
+       * Build the command line for program execution. Since
+       * argv[argc] = NULL, we can just pass along argv + 1.
+       */
+
       child_argv++;
       execvp (child_argv[0], child_argv);
 
