@@ -83,22 +83,22 @@ main (int argc, char **argv)
 
   /* Create master side of the PTY */
   if ((fdmaster = posix_openpt (O_RDWR|O_NOCTTY)) < 0)
-    die ("Error in posix_openpt()");
+    die ("posix_openpt()");
   if (grantpt (fdmaster) < 0)
-    die ("Error in grantpt()");
+    die ("grantpt()");
   if (unlockpt (fdmaster) < 0)
-    die ("Error in unlockpt()");
+    die ("unlockpt()");
 
   /* Create the slave side of the PTY */
   if ((fdslave = open (ptsname (fdmaster), O_RDWR)) < 0)
-    die ("Error in open()");
+    die ("open()");
 
   /* before we fork, set SIGCHLD signal handler */
   sa.sa_handler = &handle_sigchld;
   sigemptyset (&sa.sa_mask);
   sa.sa_flags = SA_RESTART | SA_NOCLDSTOP;
   if (sigaction (SIGCHLD, &sa, NULL) < 0)
-    die ("Error in sigaction()");
+    die ("sigaction()");
 
   /* Create the child process */
   if (!fork ())
@@ -113,10 +113,10 @@ main (int argc, char **argv)
 
       /* Set RAW mode on slave side of the PTY */
       if (tcgetattr (fdslave, &term_settings) < 0)
-        die ("Error in tcgetattr()");
+        die ("tcgetattr()");
       cfmakeraw (&term_settings);
       if (tcsetattr (fdslave, TCSANOW, &term_settings) < 0)
-        die ("Error in tcsetattr()");
+        die ("tcsetattr()");
 
       /* Slave side of the PTY becomes STDIN, STDOUT & STDERR for child */
       dup2 (fdslave, STDIN_FILENO);
@@ -126,11 +126,11 @@ main (int argc, char **argv)
 
       /* Child becomes session leader, slave PTY becomes controlling term */
       if (setsid () < 0)
-        die ("Error in setsid()");
+        die ("setsid()");
       if (ioctl (STDIN_FILENO, TIOCSCTTY, 1) < 0)
-        die ("Error in ioctl()");
+        die ("ioctl()");
       if (tcsetpgrp(STDIN_FILENO, getpid()) < 0)
-        die ("Error in tcsetpgrp()");
+        die ("tcsetpgrp()");
 
       /* Build argv for execvp. argv[argc] = NULL, so just pass argv + 1. */
       argv++;
@@ -162,7 +162,7 @@ main (int argc, char **argv)
           FD_SET (fdmaster, &fd_in);
 
           if (select (fdmaster + 1, &fd_in, NULL, NULL, NULL) < 0)
-            die ("Error in select()");
+            die ("select()");
 
           /* If data on STDIN, write to master side of PTY */
           if (FD_ISSET (STDIN_FILENO, &fd_in))
