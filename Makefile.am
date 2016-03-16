@@ -1,4 +1,4 @@
-SUBDIRS = src
+SUBDIRS = src man
 
 DISTCLEANFILES = \
 	Makefile.in \
