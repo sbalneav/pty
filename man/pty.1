@@ -1,0 +1,43 @@
+.TH "pty" "1" "March 2016"
+.nh
+.ad l
+.SH "NAME"
+pty
+.SH "SYNOPSIS"
+\fBpty\fR [\fICOMMAND\fR]\&.\&.\&.
+.PP
+.SH "DESCRIPTION"
+.PP
+The program \fBpty\fR is a simple program that spawns \fBcommand\fR and any
+arguments under a pty\&.  The stdout and stderr of the program running as a
+slave in the pty are connected to stdout on the master side, and stdin on the
+slave side of the pty is connected to stdin on the master side\&.
+.PP
+Raw mode is set on the pty for the command running in the slave\&.
+.PP
+This program is indended to be used as a helper for scripting languages to
+interact with progams that try to obtain input directly from /dev/tty, as
+opposed to stdin and stdout, like \fBpasswd\fR or \fBssh\fR\&.
+.PP
+If \fBpty\fR itself encounters an error, it will return with an exit status of
+1, and print an error on stderr\&.  Otherwise, it will return with the exit
+status of the command it executes in the pty\&.
+.RE
+.SH "EXAMPLES"
+.PP
+.PP
+To run an ssh command that can be communicated with via stdin and stdout:
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+        pty ssh -l username hostname
+.fi
+.if n \{\
+.RE
+.\}
+.SH SEE ALSO
+.BR pty (7)
+.SH AUTHORS
+Scott Balneaves <sbalneav@ltsp.org>

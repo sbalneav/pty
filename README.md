@@ -10,7 +10,7 @@ Licensed under GPL3
 
 usage:
 
-pty <program> <args>
+pty [program] [args]
 
 useful for getting things like the passwd program to talk over STDIN and STDOUT
 nicely.
