@@ -38,8 +38,7 @@
 #include <sys/ioctl.h>
 #include <sys/wait.h>
 
-int   child_exited = 0;
-pid_t child_exit_status = 0;
+pid_t child = 0;
 
 /*
  * handle_sigchild
@@ -51,8 +50,7 @@ pid_t child_exit_status = 0;
 void
 handle_sigchld (int sig __attribute__ ((unused)))
 {
-  while (waitpid ((pid_t) (-1), &child_exit_status, WNOHANG) > 0);
-  child_exited = 1;
+  while (waitpid ((pid_t) (-1), &child, WNOHANG) > 0);
 }
 
 /*
@@ -69,6 +67,37 @@ die (const char *msg)
 }
 
 /*
+ * transfer
+ *
+ * Read from one fd, write to the other.
+ */
+
+void
+transfer (int in, int out)
+{
+  int len;
+  char buf[BUFSIZ];
+
+  if ((len = read (in, buf, BUFSIZ)) > 0)
+    {
+      int nleft = len, nwritten;
+      char *ptr = buf;
+
+      /* handle potential for short writes */
+      while (nleft > 0)
+        {
+          if ((nwritten = write (out, ptr, nleft)) > 0)
+            {
+              nleft -= nwritten;
+              ptr += nwritten;
+            }
+          else
+            break;
+        }
+    }
+}
+
+/*
  * mainline
  */
 
@@ -77,9 +106,13 @@ main (int argc, char **argv)
 {
   int    fdmaster, fdslave;
   struct sigaction sa;
+  pid_t  st;
 
   if (argc < 2)
-    return 1;
+    {
+      fprintf (stderr, "Usage: %s program_name [program_arguments]", argv[0]);
+      exit (1);
+    }
 
   /* Create master side of the PTY */
   if ((fdmaster = posix_openpt (O_RDWR|O_NOCTTY)) < 0)
@@ -101,7 +134,8 @@ main (int argc, char **argv)
     die ("sigaction()");
 
   /* Create the child process */
-  if (!fork ())
+  st = fork ();
+  if (!st)
     {
       /******************************************************************/
       /*                             Child                              */
@@ -137,23 +171,21 @@ main (int argc, char **argv)
       execvp (argv[0], argv);
 
       /* Shouldn't ever reach here after an execvp... */
-      return 1;
+      die ("execvp()");
     }
-  else
+  else if (st > 0)
     {
       /******************************************************************/
       /*                             Parent                             */
       /******************************************************************/
 
-      int    len;
-      char   buf[BUFSIZ];
       fd_set fd_in;
 
       close (fdslave);
 
       for (;;)
         {
-          if (child_exited)
+          if (child)    /* child has exited */
             break;
 
           /* Wait for data from standard input and master side of PTY */
@@ -166,14 +198,18 @@ main (int argc, char **argv)
 
           /* If data on STDIN, write to master side of PTY */
           if (FD_ISSET (STDIN_FILENO, &fd_in))
-            if ((len = read (STDIN_FILENO, buf, BUFSIZ)) > 0)
-              write (fdmaster, buf, len);
+            transfer (STDIN_FILENO, fdmaster);
 
           /* If data on master side of PTY, write to STDOUT */
           if (FD_ISSET (fdmaster, &fd_in))
-            if ((len = read (fdmaster, buf, BUFSIZ)) > 0)
-              write (STDOUT_FILENO, buf, len);
+            transfer (fdmaster, STDOUT_FILENO);
         }
-      return WEXITSTATUS (child_exit_status);
+
+      if (WIFEXITED (child))
+        return WEXITSTATUS (child);
+      else
+        return 0;
     }
+  else
+    die ("fork()");
 }
