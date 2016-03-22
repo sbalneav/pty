@@ -50,7 +50,7 @@ pid_t child = 0;
 void
 handle_sigchld (int sig __attribute__ ((unused)))
 {
-  while (waitpid ((pid_t) (-1), &child, WNOHANG) > 0);
+  while (waitpid (-1, &child, WNOHANG) > 0);
 }
 
 /*
@@ -75,8 +75,8 @@ die (const char *msg)
 void
 transfer (int in, int out)
 {
-  int len, wlen;
-  char buf[BUFSIZ], *ptr = buf;
+  ssize_t len, wlen;
+  char    buf[BUFSIZ], *ptr = buf;
 
   if ((len = read (in, buf, BUFSIZ)) > 0)
     do
