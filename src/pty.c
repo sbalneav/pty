@@ -29,6 +29,7 @@
 #define _BSD_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -51,8 +52,10 @@ volatile sig_atomic_t child_done = 0;
 void
 handle_sigchld (int sig __attribute__ ((unused)))
 {
+  int saved_errno = errno;
   while (waitpid (-1, &child_status, WNOHANG) > 0);
   child_done++;
+  errno = saved_errno;
 }
 
 /*
@@ -104,7 +107,7 @@ main (int argc, char **argv)
 
   if (argc < 2)
     {
-      fprintf (stderr, "Usage: %s program_name [program_arguments]", argv[0]);
+      fprintf (stderr, "Usage: %s program_name [program_arguments]\n", argv[0]);
       exit (1);
     }
 
@@ -162,8 +165,6 @@ main (int argc, char **argv)
 
       /* Build argv for execvp. argv[argc] = NULL, so just pass argv + 1. */
       execvp (*(argv + 1), (argv + 1));
-
-      /* Shouldn't ever reach here after an execvp... */
       die ("execvp()");
     }
   else if (st > 0)
@@ -176,24 +177,22 @@ main (int argc, char **argv)
 
       close (fdslave);
 
-      while (!child_done)
+      do
         {
           /* Wait for data from standard input and master side of PTY */
           FD_ZERO (&fd_in);
           FD_SET (STDIN_FILENO, &fd_in);
           FD_SET (fdmaster, &fd_in);
 
+          /* Pause on select, and transfer to/from fdmaster and STDIN/OUT */
           if (select (fdmaster + 1, &fd_in, NULL, NULL, NULL) < 0)
             die ("select()");
-
-          /* If data on STDIN, write to master side of PTY */
           if (FD_ISSET (STDIN_FILENO, &fd_in))
             transfer (STDIN_FILENO, fdmaster);
-
-          /* If data on master side of PTY, write to STDOUT */
           if (FD_ISSET (fdmaster, &fd_in))
             transfer (fdmaster, STDOUT_FILENO);
         }
+      while (!child_done);
 
       if (WIFEXITED (child_status))
         return WEXITSTATUS (child_status);
