@@ -43,7 +43,7 @@ pid_t child = 0;
 /*
  * handle_sigchild
  *
- * Perform waitpid() so child exits cleanly, set the child_exited status
+ * Perform waitpid() so child exits cleanly, Sets the child exit status
  * variable for later in the program.
  */
 
@@ -69,32 +69,24 @@ die (const char *msg)
 /*
  * transfer
  *
- * Read from one fd, write to the other.
+ * Read from one fd, write to the other. Handles short writes.
  */
 
 void
 transfer (int in, int out)
 {
-  int len;
-  char buf[BUFSIZ];
+  int len, wlen;
+  char buf[BUFSIZ], *ptr = buf;
 
   if ((len = read (in, buf, BUFSIZ)) > 0)
-    {
-      int nleft = len, nwritten;
-      char *ptr = buf;
-
-      /* handle potential for short writes */
-      while (nleft > 0)
-        {
-          if ((nwritten = write (out, ptr, nleft)) > 0)
-            {
-              nleft -= nwritten;
-              ptr += nwritten;
-            }
-          else
-            break;
-        }
-    }
+    do
+      {
+        if ((wlen = write (out, ptr, len)) < 0)
+          break;
+        len -= wlen;
+        ptr += wlen;
+      }
+    while (len > 0);
 }
 
 /*
@@ -167,8 +159,7 @@ main (int argc, char **argv)
         die ("tcsetpgrp()");
 
       /* Build argv for execvp. argv[argc] = NULL, so just pass argv + 1. */
-      argv++;
-      execvp (argv[0], argv);
+      execvp (*(argv + 1), (argv + 1));
 
       /* Shouldn't ever reach here after an execvp... */
       die ("execvp()");
@@ -183,11 +174,8 @@ main (int argc, char **argv)
 
       close (fdslave);
 
-      for (;;)
+      while (!child)
         {
-          if (child)    /* child has exited */
-            break;
-
           /* Wait for data from standard input and master side of PTY */
           FD_ZERO (&fd_in);
           FD_SET (STDIN_FILENO, &fd_in);
