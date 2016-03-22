@@ -38,7 +38,8 @@
 #include <sys/ioctl.h>
 #include <sys/wait.h>
 
-pid_t child = 0;
+int child_status = 0;
+volatile sig_atomic_t child_done = 0;
 
 /*
  * handle_sigchild
@@ -50,7 +51,8 @@ pid_t child = 0;
 void
 handle_sigchld (int sig __attribute__ ((unused)))
 {
-  while (waitpid (-1, &child, WNOHANG) > 0);
+  while (waitpid (-1, &child_status, WNOHANG) > 0);
+  child_done++;
 }
 
 /*
@@ -174,7 +176,7 @@ main (int argc, char **argv)
 
       close (fdslave);
 
-      while (!child)
+      while (!child_done)
         {
           /* Wait for data from standard input and master side of PTY */
           FD_ZERO (&fd_in);
@@ -193,8 +195,8 @@ main (int argc, char **argv)
             transfer (fdmaster, STDOUT_FILENO);
         }
 
-      if (WIFEXITED (child))
-        return WEXITSTATUS (child);
+      if (WIFEXITED (child_status))
+        return WEXITSTATUS (child_status);
       else
         return 0;
     }
