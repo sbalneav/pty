@@ -23,40 +23,15 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-/* For posix_openpt */
-#define _XOPEN_SOURCE 600
-/* For cfmakeraw */
-#define _BSD_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <pty.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <fcntl.h>
-#include <termios.h>
-#include <signal.h>
 #include <sys/select.h>
-#include <sys/ioctl.h>
+#include <sys/time.h>
 #include <sys/wait.h>
-
-int child_status = 0;
-volatile sig_atomic_t child_done = 0;
-
-/*
- * handle_sigchild
- *
- * Perform waitpid() so child exits cleanly, Sets the child exit status
- * variable for later in the program.
- */
-
-void
-handle_sigchld (int sig __attribute__ ((unused)))
-{
-  int saved_errno = errno;
-  while (waitpid (-1, &child_status, WNOHANG) > 0);
-  child_done++;
-  errno = saved_errno;
-}
 
 /*
  * die
@@ -101,8 +76,7 @@ transfer (int in, int out)
 int
 main (int argc, char **argv)
 {
-  int    fdmaster, fdslave;
-  struct sigaction sa;
+  int    master;
   pid_t  st;
 
   if (argc < 2)
@@ -111,55 +85,14 @@ main (int argc, char **argv)
       exit (1);
     }
 
-  /* Create master side of the PTY */
-  if ((fdmaster = posix_openpt (O_RDWR|O_NOCTTY)) < 0)
-    die ("posix_openpt()");
-  if (grantpt (fdmaster) < 0)
-    die ("grantpt()");
-  if (unlockpt (fdmaster) < 0)
-    die ("unlockpt()");
-
-  /* Create the slave side of the PTY */
-  if ((fdslave = open (ptsname (fdmaster), O_RDWR)) < 0)
-    die ("open()");
-
-  /* before we fork, set SIGCHLD signal handler */
-  sa.sa_handler = &handle_sigchld;
-  sigemptyset (&sa.sa_mask);
-  sa.sa_flags = SA_RESTART | SA_NOCLDSTOP;
-  if (sigaction (SIGCHLD, &sa, NULL) < 0)
-    die ("sigaction()");
-
   /* Create the child process */
-  st = fork ();
+  st = forkpty (&master, NULL, NULL, NULL);
   if (!st)
     {
       /******************************************************************/
       /*                             Child                              */
       /******************************************************************/
 
-      struct termios term_settings;
-
-      close (fdmaster);
-
-      /* Set RAW mode on slave side of the PTY */
-      if (tcgetattr (fdslave, &term_settings) < 0)
-        die ("tcgetattr()");
-      cfmakeraw (&term_settings);
-      if (tcsetattr (fdslave, TCSANOW, &term_settings) < 0)
-        die ("tcsetattr()");
-
-      /* Slave side of the PTY becomes STDIN, STDOUT & STDERR for child */
-      dup2 (fdslave, STDIN_FILENO);
-      dup2 (fdslave, STDOUT_FILENO);
-      dup2 (fdslave, STDERR_FILENO);
-      close (fdslave);
-
-      /* Child becomes session leader, slave PTY becomes controlling term */
-      if (setsid () < 0)
-        die ("setsid()");
-      if (ioctl (STDIN_FILENO, TIOCSCTTY, 1) < 0)
-        die ("ioctl()");
       if (tcsetpgrp(STDIN_FILENO, getpid()) < 0)
         die ("tcsetpgrp()");
 
@@ -173,26 +106,29 @@ main (int argc, char **argv)
       /*                             Parent                             */
       /******************************************************************/
 
+      struct timeval tv;
+      int child_status;
       fd_set fd_in;
 
-      close (fdslave);
-
-      do
+      for (;;)
         {
           /* Wait for data from standard input and master side of PTY */
           FD_ZERO (&fd_in);
           FD_SET (STDIN_FILENO, &fd_in);
-          FD_SET (fdmaster, &fd_in);
+          FD_SET (master, &fd_in);
 
-          /* Pause on select, and transfer to/from fdmaster and STDIN/OUT */
-          if (select (fdmaster + 1, &fd_in, NULL, NULL, NULL) < 0)
+          /* Pause 1/4 second on select, and transfer to/from master and STDIN/OUT */
+          tv.tv_sec = 0;
+          tv.tv_usec = 250000;
+          if (select (master + 1, &fd_in, NULL, NULL, &tv) < 0)
             die ("select()");
           if (FD_ISSET (STDIN_FILENO, &fd_in))
-            transfer (STDIN_FILENO, fdmaster);
-          if (FD_ISSET (fdmaster, &fd_in))
-            transfer (fdmaster, STDOUT_FILENO);
+            transfer (STDIN_FILENO, master);
+          if (FD_ISSET (master, &fd_in))
+            transfer (master, STDOUT_FILENO);
+          if (waitpid(st, &child_status, WNOHANG))
+            break;
         }
-      while (!child_done);
 
       if (WIFEXITED (child_status))
         return WEXITSTATUS (child_status);

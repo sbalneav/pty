@@ -8,7 +8,7 @@ pty_CFLAGS = \
 	$(WARN_CFLAGS)
 
 pty_LDADD = \
-	$(pty_LIBS)
+	$(pty_LIBS) $(UTIL_LIBS)
 
 DISTCLEANFILES = \
 	Makefile.in
