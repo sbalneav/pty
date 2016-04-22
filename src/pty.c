@@ -93,9 +93,6 @@ main (int argc, char **argv)
       /*                             Child                              */
       /******************************************************************/
 
-      if (tcsetpgrp(STDIN_FILENO, getpid()) < 0)
-        die ("tcsetpgrp()");
-
       /* Build argv for execvp. argv[argc] = NULL, so just pass argv + 1. */
       execvp (*(argv + 1), (argv + 1));
       die ("execvp()");
