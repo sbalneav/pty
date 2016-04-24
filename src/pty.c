@@ -33,6 +33,7 @@
 #include <sys/time.h>
 #include <sys/wait.h>
 
+#define TIMEOUTUSEC 250000
 /*
  * die
  *
@@ -47,13 +48,13 @@ die (const char *msg)
 }
 
 /*
- * transfer
+ * copyfd
  *
  * Read from one fd, write to the other. Handles short writes.
  */
 
 void
-transfer (int in, int out)
+copyfd (int in, int out)
 {
   ssize_t len, wlen;
   char    buf[BUFSIZ], *ptr = buf;
@@ -77,7 +78,7 @@ int
 main (int argc, char **argv)
 {
   int    master;
-  pid_t  st;
+  pid_t  pid;
 
   if (argc < 2)
     {
@@ -86,8 +87,8 @@ main (int argc, char **argv)
     }
 
   /* Create the child process */
-  st = forkpty (&master, NULL, NULL, NULL);
-  if (!st)
+  pid = forkpty (&master, NULL, NULL, NULL);
+  if (!pid)
     {
       /******************************************************************/
       /*                             Child                              */
@@ -97,14 +98,14 @@ main (int argc, char **argv)
       execvp (*(argv + 1), (argv + 1));
       die ("execvp()");
     }
-  else if (st > 0)
+  else if (pid > 0)
     {
       /******************************************************************/
       /*                             Parent                             */
       /******************************************************************/
 
       struct timeval tv;
-      int child_status;
+      int status;
       fd_set fd_in;
 
       for (;;)
@@ -114,21 +115,21 @@ main (int argc, char **argv)
           FD_SET (STDIN_FILENO, &fd_in);
           FD_SET (master, &fd_in);
 
-          /* Pause 1/4 second on select, and transfer to/from master and STDIN/OUT */
+          /* Pause 1/4 second on select */
           tv.tv_sec = 0;
-          tv.tv_usec = 250000;
+          tv.tv_usec = TIMEOUTUSEC;
           if (select (master + 1, &fd_in, NULL, NULL, &tv) < 0)
             die ("select()");
           if (FD_ISSET (STDIN_FILENO, &fd_in))
-            transfer (STDIN_FILENO, master);
+            copyfd (STDIN_FILENO, master);
           if (FD_ISSET (master, &fd_in))
-            transfer (master, STDOUT_FILENO);
-          if (waitpid(st, &child_status, WNOHANG))
+            copyfd (master, STDOUT_FILENO);
+          if (waitpid(pid, &status, WNOHANG))
             break;
         }
 
-      if (WIFEXITED (child_status))
-        return WEXITSTATUS (child_status);
+      if (WIFEXITED (status))
+        return WEXITSTATUS (status);
       else
         return 0;
     }
