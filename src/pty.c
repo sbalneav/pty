@@ -25,7 +25,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <errno.h>
 #include <pty.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -34,18 +33,6 @@
 #include <sys/wait.h>
 
 #define TIMEOUTUSEC 250000
-/*
- * die
- *
- * Print an error message to STDERR and exit with status of 1.
- */
-
-void
-die (const char *msg)
-{
-  perror (msg);
-  exit (1);
-}
 
 /*
  * copyfd
@@ -83,43 +70,35 @@ main (int argc, char **argv)
   if (argc < 2)
     {
       fprintf (stderr, "Usage: %s program_name [program_arguments]\n", argv[0]);
-      exit (1);
+      return 1;
     }
 
   /* Create the child process */
   pid = forkpty (&master, NULL, NULL, NULL);
-  if (!pid)
+  if (!pid)                     /* child */
     {
-      /******************************************************************/
-      /*                             Child                              */
-      /******************************************************************/
-
       /* Build argv for execvp. argv[argc] = NULL, so just pass argv + 1. */
       execvp (*(argv + 1), (argv + 1));
-      die ("execvp()");
+      return 1;
     }
-  else if (pid > 0)
+  else if (pid > 0)             /* parent */
     {
-      /******************************************************************/
-      /*                             Parent                             */
-      /******************************************************************/
-
       struct timeval tv;
-      int status;
+      int status = 0;
       fd_set fd_in;
 
       for (;;)
         {
-          /* Wait for data from standard input and master side of PTY */
+          /* Wait for data from STDIN and master side of PTY */
           FD_ZERO (&fd_in);
           FD_SET (STDIN_FILENO, &fd_in);
           FD_SET (master, &fd_in);
 
-          /* Pause 1/4 second on select */
+          /* Pause for TIMEOUTUSEC microseconds on select */
           tv.tv_sec = 0;
           tv.tv_usec = TIMEOUTUSEC;
           if (select (master + 1, &fd_in, NULL, NULL, &tv) < 0)
-            die ("select()");
+            break;
           if (FD_ISSET (STDIN_FILENO, &fd_in))
             copyfd (STDIN_FILENO, master);
           if (FD_ISSET (master, &fd_in))
@@ -131,8 +110,8 @@ main (int argc, char **argv)
       if (WIFEXITED (status))
         return WEXITSTATUS (status);
       else
-        return 0;
+        return 1;
     }
-  else
-    die ("fork()");
+
+  return 1;
 }
